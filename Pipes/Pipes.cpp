@@ -31,7 +31,6 @@ int generateRandomNumber(int current_number)
     srand(time(NULL));
     int increasing = rand() % 100 + 1; 
     return (current_number += increasing) ;
-    //return 13;
 };
 
 int main(int argc, char *argv[])
