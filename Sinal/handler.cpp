@@ -19,6 +19,7 @@ void tp1SignalHandler(int sigNumber){
             break;
         case STOP_SIG:
             cout << "Stop execution." << endl;
+            // TODO: Implement stop by using sleep?
             break;
         case CONT_SIG:
             cout << "Continue execution." << endl;
@@ -53,13 +54,15 @@ int main(int argc, char** argv){
     signal( STOP_SIG, tp1SignalHandler );
     signal( CONT_SIG, tp1SignalHandler );
 
-    while(1){
-        if (waitType == 1){
-            cout << "Waiting without overusing the machine" << endl;
-            sleep(100);
+    if (waitType == 1){
+        while(1){
+            cout << "Blocking waiting for signals" << endl;
+            sleep(1000000);
         }
-        else{
-            // cout << "Busily waiting for signal" << endl;
+    }
+    else{
+        while(1){
+            cout << "Busily waiting for signal" << endl;
             continue;
         }
     }

@@ -1,7 +1,7 @@
 #include<iostream>
 #include<cstdlib>
 #include<signal.h>
-#include <errno.h>
+#include<errno.h>
 using namespace std;
 
 
