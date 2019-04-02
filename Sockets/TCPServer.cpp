@@ -11,6 +11,8 @@
 #define PORT 8080
 #define SIZE_BUFFER 256
 
+#define LOG_ON 1
+
 using namespace std;
 
 int error(const char *msg)
@@ -37,39 +39,49 @@ int main(int argc, char *argv[])
   char charDataMsg[SIZE_BUFFER];
   struct sockaddr_in serverAddress, clientAddress;
   int statusSocket;
-  if (argc < 2) 
+  if (argc < 2)
   {
-    fprintf(stderr,"ERROR, Not Enought Parameters Received\n");
-    exit(1);
+    fprintf(stderr,"WARNING: Port number not given. Set to default.\n");
+    portNumber = PORT;
+  } else {
+    portNumber = atoi(argv[1]);
   }
+
   // Creating a New Socket
   // Socket File descriptor = socket(int domain, int type, int protocol)
   socketFileDescript =  socket(AF_INET, SOCK_STREAM, 0);
   if (socketFileDescript < 0) 
   {
-    error("ERROR Opening Socket file Descriptor");
+    error("ERROR: Opening Socket file Descriptor failed");
   }
-  // Clear Address Structure
+
+  //Clear Address Structure
   bzero((char *) &serverAddress, sizeof(serverAddress));
-  portNumber = atoi(argv[1]);
-  /* Setup the host_addr structure for use in bind call */
-  serverAddress.sin_family = AF_INET;  
+
+  // Setup the host_addr structure for use in bind call
+  serverAddress.sin_family = AF_INET;
+
   // Automatically be filled with current host's IP address
-  serverAddress.sin_addr.s_addr = INADDR_ANY;  
+  serverAddress.sin_addr.s_addr = INADDR_ANY;
+
   // Convert short integer value for port must be converted into network byte order
   serverAddress.sin_port = htons(portNumber);
+
   // Bind(int fd, struct sockaddr *local_addr, socklen_t addr_length)
   // bind() passes file descriptor, the address structure,and the length of the address structure
   // This bind() call will bind the socket to the current IP address on port, portNumber
   if (bind(socketFileDescript, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) < 0) 
-      error("ERROR on binding");
+      error("ERROR: Binding failure");
   printf("The Server is UP - LOOK TO THE POWER !\n");
+
   // This listen() call tells the socket to listen to the incoming connections.
   // The listen() function places all incoming connection into a backlog queue until accept() call accepts the connection.
   // Here, we set the maximum size for the backlog queue to 5.
   listen(socketFileDescript,5);
+
   // The accept() call actually accepts an incoming connection
   clientLength = sizeof(clientAddress);
+
   /* This accept() function will write the connecting client's address info into 
     the address structure and the size of that structure is clientLength.
     The accept() returns a new socket file descriptor for the accepted connection.
@@ -78,40 +90,51 @@ int main(int argc, char *argv[])
     communicating with the connected client.*/
   newsocketFileDescript = accept(socketFileDescript,(struct sockaddr *) &clientAddress, &clientLength);
   if (newsocketFileDescript < 0) 
-          error("ERROR on accept");
+          error("ERROR: Accept failure");
   printf("server: got connection from %s port %d\n",inet_ntoa(clientAddress.sin_addr), ntohs(clientAddress.sin_port));
-  // This send() function sends the 13 bytes of the string to the new socket
+
+
   while(true)
   {
     statusSocket = read(newsocketFileDescript,charDataMsg,SIZE_BUFFER);
     if (statusSocket < 0)
     {
-      error("ERROR Sending Message to Socket file Descriptor");
+      error("ERROR: Sending Message to Socket file Descriptor Failed");
       break;
     }
     dataMsg =  atoi(charDataMsg);
     if (dataMsg == 0)
     { 
-      cout << "The Producer received an Unexpected message:" << charDataMsg <<endl;
+      // cout << "The Producer received an Unexpected message:" << charDataMsg <<endl;
+      cout << "The consumer received a zero (0). Will terminate process." << endl;
       break;
     }
     cout << "The Consumer Received from the Producer: " << dataMsg << endl;
     isPrimeProduction = isPrime(dataMsg);
     //sprintf (charDataMsg, "%d", isPrimeProduction);
+
+
     if (isPrimeProduction == 1 )
     {
-      cout << "Consumer is sending to the Producer: Received a Prime Number " << endl;
-      sprintf (charDataMsg, "%s", "Consumer : Received a Prime Number");
+      if (LOG_ON) {
+        cout << "Consumer is sending to the Producer: Received a Prime Number " << endl;
+      }
+        sprintf (charDataMsg, "Consumer : Received a Prime Number (%d)", dataMsg);
     }
     else
     {
-      cout << "Consumer is sending to the Producer: Received a Non-Prime Number " << endl;
-      sprintf (charDataMsg, "%s", "Consumer : Received a Non-Prime Number");
+      if (LOG_ON) {
+        cout << "Consumer is sending to the Producer: Received a Non-Prime Number " << endl;
+      }
+      sprintf (charDataMsg, "Consumer : Received a Non-Prime Number (%d)", dataMsg);
     }
+
+    // This send() function sends the 13 bytes of the string to the new socket
     statusSocket = send(newsocketFileDescript,charDataMsg, SIZE_BUFFER, 0);
+
     if (statusSocket < 0)
     {
-      error("ERROR Sending Message to Socket file Descriptor");
+      error("ERROR: Sending Message to Socket file Descriptor Failed");
     }
     bzero(charDataMsg,SIZE_BUFFER);
     numberOfMessages+=1;

@@ -43,40 +43,62 @@ int main(int argc, char *argv[])
     }
     portNumber = atoi(argv[2]);
     numberProduction = atoi(argv[3]);
+
     socketFileDescript = socket(AF_INET, SOCK_STREAM, 0);
+
     if (socketFileDescript < 0) 
-        error("ERROR opening socket");
+        error("ERROR: Socket opening failure");
+
+
     server = gethostbyname(argv[1]);
     if (server == NULL) {
-        fprintf(stderr,"ERROR, no such host\n");
+        fprintf(stderr,"ERROR: No such host\n");
         exit(0);
     }
+
     bzero((char *) &serverAddress, sizeof(serverAddress));
     serverAddress.sin_family = AF_INET;
     //Line to understand
     bcopy((char *)server->h_addr,(char *)&serverAddress.sin_addr.s_addr,server->h_length);
     serverAddress.sin_port = htons(portNumber);
+
     if (connect(socketFileDescript, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) < 0) 
-        error("ERROR connecting");
-    while(numberProduction>0)
-    {   
-        //printf("Please enter the message: ");
+        error("ERROR: Connection failure");
+
+
+    while (numberMsgs < numberProduction)
+    {
         bzero(charDataMsg,SIZE_BUFFER);
-        //fgets(charDataMsg,SIZE_BUFFER-1,stdin);
+
         currentProduction = generateRandomNumber(currentProduction);
         sprintf(charDataMsg, "%d", currentProduction);
+
         printf("Sending to the Consumer: %d\n",currentProduction);
+
+        // Sending info to server
         statusWrite = write(socketFileDescript, charDataMsg, strlen(charDataMsg));
+
         if (statusWrite < 0) 
-            error("ERROR writing to socket");
+            error("ERROR: Could not write to socket");
+
         bzero(charDataMsg,256);
         statusRead = read(socketFileDescript, charDataMsg, SIZE_BUFFER);
+
         if (statusRead < 0)     
-            error("ERROR reading from socket");
+            error("ERROR Could not from socket");
+
         printf("%s\n", charDataMsg);
-        numberProduction-=1;
+
         numberMsgs+=1;
     }
+
+    cout << "Finished all iterations. Sending termination signal to the consumer." << endl;
+    bzero(charDataMsg,256);
+    statusWrite = write(socketFileDescript, charDataMsg, strlen(charDataMsg));
+
+    if (statusWrite < 0)
+        error("ERROR: Could not write to socket");
+
     printf("Total number of messages exchanged: %d\n",numberMsgs);
     close(socketFileDescript);
     return 0;
