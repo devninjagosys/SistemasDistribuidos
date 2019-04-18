@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
                 # Add the K value to the list, if it has not
                 # been done yet, and t to dictionary
-                if K not in nThrVec:
+                if K not in nThrVec[bfIdx]:
                     nThrVec[bfIdx] += [K]
                     timesDict[bfIdx].update( { K: [t] } )
                 else:
