@@ -2,25 +2,33 @@
 #include <fstream>
 #include <thread>
 #include <vector>
+// #include <mutex>
 #include <semaphore.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <pthread.h>
+#include <math.h>
+#define SHARED 0 
 
 using namespace std;
 
 
 //--------------------------------
-sem_t* semaphoreMutex;
-sem_t* semaphoreConsumers;
-sem_t* semaphoreProducers;
-
-int productsProduced = 0;
-int productsConsumed = 0;
+sem_t semaphoreMutex;
+sem_t semaphoreConsumers;
+sem_t semaphoreProducers;
+sem_t semaphoreVariable;
+sem_t producerCount;
+sem_t semaphoreSecurity;
+int numberOfProducts;
+//int productsProduced = 0;
+//int productsConsumed = 0;
 vector<int> sharedMemory;
 
-int isPrime(int number){
-  for(int i = 2; i <= number/2; ++i)
+int isPrime(int number)
+{
+  for(int i = 2; i < sqrt(number); ++i)
   {
     if(number % i == 0)
         {
@@ -30,12 +38,25 @@ int isPrime(int number){
   return 1;
 }
 
-int generateRandomNumber(){
+int generateRandomNumber()
+{
+    //srand(time(NULL));
     int outPut = rand()%10000000 + 1;
     return outPut;
 };
 
-int getFirstMemoryFreePosition(){
+
+void print_buffer()
+{
+    //srand(time(NULL));
+    for (int i = 0; i < sharedMemory.size(); ++i)
+    {
+       std::cout<<sharedMemory[i]<<'\t';
+    }
+
+};
+int getFirstMemoryFreePosition()
+{
     for (int i = 0; i < sharedMemory.size(); ++i)
     {
         if (sharedMemory[i] == 0) {
@@ -45,7 +66,8 @@ int getFirstMemoryFreePosition(){
     return -1;
 }
 
-int getFirstMemoryBusyPosition(){
+int getFirstMemoryBusyPosition()
+{
     for (int i = 0; i < sharedMemory.size(); ++i)
     {
         if (sharedMemory[i] != 0) {
@@ -55,158 +77,144 @@ int getFirstMemoryBusyPosition(){
   return -1;
 }
 
-void producer(int numberOfProducts){
-  bool stopFlag = false;
-  while(productsProduced<=numberOfProducts)
+void *producer(void*arg)
+{ //bool stopFlag = false;
+//productsProduced=1;
+    int productsProduced = 0;
+  while(productsProduced<numberOfProducts)
   {
     // Create variable
+    //cout<<"Aqui "<<productsProduced<<endl;
     int product = generateRandomNumber();
-
-    // cout << "Entering producer semaphore" << endl;
-
-    sem_wait(semaphoreProducers);
-    sem_wait(semaphoreMutex);
+    std::cout<<"\nProducer"<<endl;
+    sem_wait(&semaphoreProducers);
+    sem_wait(&semaphoreMutex);
     // Add variable to buffer
     int pos = getFirstMemoryFreePosition();
-    if (pos == -1){     // FIXME: This is not supposed to happen.
-        cout << "P: Error in memory access" << endl;
-        sem_post(semaphoreMutex);
-        sem_post(semaphoreConsumers);
-        continue;
-    }
-    cout << "Adding number " << product << " to memory " << pos <<endl;
+    std::cout << "\nAdding number " << product << " to memory " << pos <<endl;
     sharedMemory[pos] = product;
-    productsProduced+=1;
-    if (productsProduced>numberOfProducts)
-        stopFlag = true;
-    sem_post(semaphoreMutex);
-    sem_post(semaphoreConsumers);
-
-    if (stopFlag){
-        cout << "Exceeded total to be produced" << endl;
-        return;
+    std::cout<<"\nProducts Produced: "<<productsProduced<<endl;
+    print_buffer();
+    productsProduced++;
+    if (productsProduced>numberOfProducts){
+        cout<<"Hey"<<endl;
+        pthread_exit(0);
     }
-  }
+    sem_post(&semaphoreMutex);
+    sem_post(&semaphoreConsumers);
+    //productsProduced+=1;
+    }
+    return 0;
 }
 
-void consumer(int numberOfProducts){
-  bool stopFlag = false;
-  while(productsConsumed<=numberOfProducts){
-    // cout << "Entering consumer semaphore" << endl;
-
-    sem_wait(semaphoreConsumers);
-    sem_wait(semaphoreMutex);
+void *consumer(void *arg)
+{
+  //bool stopFlag = false;
+  int productsConsumed = 0;  
+  while (productsConsumed<numberOfProducts)
+  {
+    
+    if (sem_trywait(&producerCount)){
+        pthread_exit(0);
+    }
+    else {
+    std::cout<<"\nConsumer"<<endl;
+    sem_wait(&semaphoreConsumers);
+    sem_wait(&semaphoreMutex);
     // Get variable from buffer
     int pos = getFirstMemoryBusyPosition();
     int product = sharedMemory[pos];
-    if (pos == -1){     // FIXME: This is not supposed to happen.
-        cout << "C: Error in memory access" << endl;
-        sem_post(semaphoreMutex);
-        sem_post(semaphoreProducers);
-        continue;
-    }
-    cout << "Got number " << product << " from postion " << pos << endl;
+    //std::cout << "\nGot number " << product << " from postion " << pos << endl;
     sharedMemory[pos] = 0;
-    productsConsumed+=1;
-    if (productsProduced>numberOfProducts)
-        stopFlag = true;
-    sem_post(semaphoreMutex);
-    sem_post(semaphoreProducers);
-
+    productsConsumed++;
+    //if (productsProduced>numberOfProducts)
+    //    {stopFlag = true;}
+    std::cout<<"\nProducts Consumed: "<<productsConsumed<<endl;
+    print_buffer();
+    sem_post(&semaphoreMutex);
+    sem_post(&semaphoreProducers);
     bool prime = isPrime(product);
-    if (product ==-1){
-        std::cout << "Erro" << endl;
+    if (product ==-1)
+    {
+        std::cout<<"Erro" << endl;
     }
-    if (prime and product!=-1){
-        std::cout<<"The number: " << product <<" is Prime!" << endl;
+    if (prime and product!=-1)
+    {
+        //std::cout<<"The number: " << product <<" is Prime!" << endl;
     }
-
-    if (stopFlag){
-        cout << "Exceeded total to be produced" << endl;
-        return;
+    //if (stopFlag){
+    //    cout << "Exceeded total to be produced" << endl;
+    //    return;}
     }
   }
+  	return 0;
 }
 
 
-
-int main (int argc, char *argv[]){
+int main (int argc, char *argv[])
+{
     int nP = 0 , nC = 0;
     if (argc < 5)
     {
-        fprintf(stderr,"Usage %s : NumberOfProducer NumberOfConsumer NumberOfProductions MomorySize [OutFile] \n", argv[0]);
+        fprintf(stderr,"Usage %s : NumberOfProducer NumberOfConsumer NumberOfProductions MemorySize [OutFile] \n", argv[0]);
         exit(1);
     }
 
     int numberOfProducerThreads = atoi(argv[1]);
     int numberOfConsumerThreads = atoi(argv[2]);
 
-    int numberOfProducts = atoi(argv[3]); // 10000;
+    numberOfProducts = atoi(argv[3]); // 10000;
+    //std::cout<<numberOfProducts<<endl;
     int sharedMemorySize = atoi(argv[4]); // 32;
-
     srand(time(NULL));
-
     string fileRoot;
     if (argc > 5) fileRoot = argv[5];
     else fileRoot = "efficiency";
     string filename = fileRoot + ".txt";
 
     sharedMemory.resize(sharedMemorySize,0);
-
-    semaphoreMutex = sem_open("semaphoreMutex", O_CREAT, 0644, 1);
-    semaphoreConsumers = sem_open("semaphoreConsumers", O_CREAT, 0644, 0);
-    semaphoreProducers = sem_open("semaphoreProducers", O_CREAT, 0644, sharedMemorySize);
-
-    if ( semaphoreMutex == SEM_FAILED ){
-        cout << "ERROR: Couldn't create mutex semaphore" << endl;
-        cout << "       " << strerror(errno) << endl;
-        return 1;
-    }
-    if ( semaphoreConsumers == SEM_FAILED ){
-        cout << "ERROR: Couldn't create consumer semaphore" << endl;
-        cout << "       " << strerror(errno) << endl;
-        return 1;
-    }
-    if ( semaphoreProducers == SEM_FAILED ){
-        cout << "ERROR: Couldn't create producer semaphore" << endl;
-        cout << "       " << strerror(errno) << endl;
-        return 1;
-    }
-
     clock_t t_inic = clock(); // Clock Initial
 
-    int totalNumberOfThreads = numberOfProducerThreads + numberOfConsumerThreads;
-    thread allThreads[totalNumberOfThreads];
+    pthread_t pid[numberOfProducerThreads], cid[numberOfConsumerThreads];
+    sem_init(&semaphoreMutex,0,1);
+    sem_init(&semaphoreSecurity,0,1);
+    sem_init(&semaphoreConsumers,0,0);
+    sem_init(&semaphoreProducers,0,sharedMemorySize);
+    sem_init(&producerCount,0,numberOfProducts);
+    //sem_init(&producerCount,0,numberOfProducts);
 
-    //Register producer threads
-    for (int i = 0; i < numberOfProducerThreads; ++i)
-    {
-        allThreads[i] = thread(producer,numberOfProducts);
-    }
+    for(int i = 0; i < numberOfProducerThreads; i++) {	
+		pthread_create(&pid[numberOfProducerThreads], NULL, producer, NULL);
+		//pthread_create(&cid[N], NULL, Consumer, NULL);
+	}
+    for(int i = 0; i < numberOfConsumerThreads; i++) {	
+		//pthread_create(&pid[N], NULL, Producer, NULL);
+		pthread_create(&cid[numberOfConsumerThreads], NULL, consumer, NULL);
+	}
 
-    //Register consumer threads
-    for (int i = numberOfProducerThreads; i < totalNumberOfThreads; ++i)
-    {
-        allThreads[i] = thread(consumer,numberOfProducts);
-    }
-
-    // Merge all threads to the main thread
-    for(int id = 0; id < totalNumberOfThreads; id++)
-        allThreads[id].join();
-
+    // And wait for them to finish.
+	for(int i = 0; i < numberOfProducerThreads; i++) {
+		pthread_join(pid[numberOfProducerThreads], NULL);
+		//pthread_join(cid[N], NULL);
+	}
+    // And wait for them to finish.
+	for(int i = 0; i < numberOfConsumerThreads; i++) {
+		//pthread_join(pid[N], NULL);
+		pthread_join(cid[numberOfConsumerThreads], NULL);
+	}
     clock_t t_fim = clock();
     double totTime = (float)(t_fim-t_inic)/CLOCKS_PER_SEC;
 
     // Will write data to file
-    cout << "Writing to file '" << filename << "'" << endl;
+    //cout << "Writing to file '" << filename << "'" << endl;
     std::ofstream outfile;
     outfile.open(filename, std::ios_base::app);
     outfile << numberOfProducts << " " << sharedMemorySize << " " << numberOfProducerThreads
       << " " << numberOfConsumerThreads << " " << totTime << " " << endl;
     outfile.close();
-    cout << "Done. Finishing program." << endl;
+    std::cout << "Done. Finishing program." << endl;
 
-    std::cout << "\nCompleted semaphore program!\n";
+    std::cout << "\nCompleted semaphore program! with time:\n"<<totTime;
     std::cout << std::endl;
 
     return 0;
