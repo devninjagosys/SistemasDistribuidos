@@ -14,7 +14,7 @@ int server_socket;         // This process' socket
 char* messageBuffer;
 int messageLength;
 const char* delimiter;
-vector<int> client_sockets;
+int msgCount=0;
 
 
 // Message types
@@ -27,28 +27,42 @@ enum MessageTyp {
 };
 
 
+class ProcessClient
+{
+    int actualLider;
+    pid_t myPid;
+    std::string processName;
+    public:
+        struct sockaddr_in myaddr,remaddr;
+        int client_socket_ID;
+        int myport;
+        ProcessClient(int lider,std::string name,int port)
+        {
+            myPid = getpid();
+            actualLider = lider;
+            processName = name;
+            myport = port;
+        }
+        void setLider(int lider)
+        {
+            actualLider=lider;
+        }
+        int getLider()
+        {
+            return actualLider;
+        }
+        int getPid()
+        {
+            return (int)myPid;
+        }
+
+};
 
 // Main funtions
 int main(int argc, char* argv[]);
-
+// AUX functions
 void interface();
-void receiveMsgFromClients();
+void receiveMsgFromClients(int flag);
 int setupServerSocket(int port);
-void sendMsgToClient(int port);
-void setupClientSocket(int port);
-//void leader();
-
-
-// Auxiliary funtions
-
-//bool checkLeader();
-
-
-
-class ProcessClient
-{
-    public:
-
-    struct sockaddr_in myaddr, remaddr;
-
-};
+int setupClientSocket(ProcessClient& clientProcess);
+void sendMsgToClient(int flag,ProcessClient& clientProcess);
