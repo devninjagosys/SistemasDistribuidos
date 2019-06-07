@@ -13,7 +13,7 @@
 #include <arpa/inet.h>
 #include <vector>
 
-#include "Valentao.h"
+#include "Code.h"
 
 
 using namespace std;
@@ -93,10 +93,11 @@ void interface(){
 
 int main(int argc, char* argv[]){
     // TODO: Function arguments
-    int myPort = 8080;
+    int myServerPort = 8080;
+    int sendPort = 8080;
     messageLength = 1024;
     messageBuffer = new char[messageLength];
-    delimiter = "|";
+    delimiter = "\n";
     // ----
     if(argc < 2)
     { 
@@ -104,10 +105,16 @@ int main(int argc, char* argv[]){
         return 0;
     }
     int numTimes = atoi(argv[1]);
+    if(argc >2)
+    { 
+        sendPort = atoi(argv[2]);
+    }
+    ProcessClient P1(0,"Processo1",sendPort);
+    ProcessClient P2(0,"Processo2",sendPort);
     //std::cout<<numTimes<<endl;
     if (numTimes==1)
     {
-    if ( setupServerSocket(myPort) == -1 ){
+    if ( setupServerSocket(myServerPort) == -1 ){
         cout << "ERROR: Could not setup socket" << endl;
         exit(1);
     }
@@ -115,8 +122,8 @@ int main(int argc, char* argv[]){
     }
     else
     {
-    setupClientSocket(8080);
-    sendMsgToClient(8080,0);
+    setupClientSocket(P1);
+    sendMsgToClient(0,P1);
     }
     // interface();
 }
@@ -186,13 +193,14 @@ void receiveMsgFromClients(int flag)
     }
 }
 
-int setupClientSocket(int port)
+int setupClientSocket(ProcessClient& clientProcess)
 {
     /*
      *  Thread responsible for create a client socket
      *  
      */
-    struct sockaddr_in myaddr, remaddr;
+    //struct sockaddr_in myaddr;
+    int port=clientProcess.myport;
 	int client_socket;
 	int recvlen;		/* # bytes in acknowledgement message */
 	char server[] = "127.0.0.1";	/* change this to use a different server */
@@ -201,49 +209,52 @@ int setupClientSocket(int port)
     {
 		printf("socket created\n");
     }
-    memset((char *)&myaddr, 0, sizeof(myaddr));
-	myaddr.sin_family = AF_INET;
-	myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	myaddr.sin_port = htons(0);
+    memset((char *)&clientProcess.myaddr, 0, sizeof(clientProcess.myaddr));
+	clientProcess.myaddr.sin_family = AF_INET;
+	clientProcess.myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	clientProcess.myaddr.sin_port = htons(0);
 
-    if (bind(client_socket, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) 
+    if (bind(client_socket, (struct sockaddr *)&clientProcess.myaddr, sizeof(clientProcess.myaddr)) < 0) 
     {
 		perror("bind failed");
 		exit(0);
     }
-    client_sockets.push_back(client_socket);
+    //client_sockets.push_back(client_socket);
+    clientProcess.client_socket_ID=client_socket;
     return 1;
 }
-void sendMsgToClient(int port,int flag)
+void sendMsgToClient(int flag,ProcessClient& clientProcess)
 {
     /*
      *  Thread responsible for sending msg in a client socket
      *  
      */
-    struct sockaddr_in remaddr;
-	socklen_t addrlen = sizeof(remaddr);
-    memset((char *) &remaddr, 0, sizeof(remaddr));
+    //struct sockaddr_in remaddr;
+    int port=clientProcess.myport;
+	socklen_t addrlen = sizeof(clientProcess.remaddr);
+    memset((char *) &clientProcess.remaddr, 0, sizeof(clientProcess.remaddr));
     char client_buffer[BUFLEN];	/* message buffer */
-	remaddr.sin_family = AF_INET;
-	remaddr.sin_port = htons(port);
+	clientProcess.remaddr.sin_family = AF_INET;
+	clientProcess.remaddr.sin_port = htons(port);
     char server[] = "127.0.0.1";
     int recvlen;
-    int count=0;
-    int temp_client_socket = client_sockets.back();
-	if (inet_aton(server, &remaddr.sin_addr)==0) {
+    //int count=0;
+    //int temp_client_socket = client_sockets.back();
+	if (inet_aton(server, &clientProcess.remaddr.sin_addr)==0) {
 		fprintf(stderr, "inet_aton() failed\n");
 		exit(1);
 	}
-	printf("Sending packet %d to %s port %d\n", count, server, port);
-	sprintf(client_buffer, "This is packet %d", count);
-	if (sendto(temp_client_socket, client_buffer, strlen(client_buffer), 0, (struct sockaddr *)&remaddr, addrlen)==-1) {
+	printf("Sending packet %d to %s on port %d\n", msgCount, server, port);
+	sprintf(client_buffer, "This is packet %d", msgCount);
+	if (sendto(clientProcess.client_socket_ID, client_buffer, strlen(client_buffer), 0, (struct sockaddr *)&clientProcess.remaddr, addrlen)==-1) {
 		perror("sendto");
 		exit(1);
 	}
+    msgCount++;
 	/* now receive an acknowledgement from the server */
     if(flag==1)
     {
-	recvlen = recvfrom(temp_client_socket, client_buffer, BUFLEN, 0, (struct sockaddr *)&remaddr, &addrlen);            
+	recvlen = recvfrom(clientProcess.client_socket_ID, client_buffer, BUFLEN, 0, (struct sockaddr *)&clientProcess.remaddr, &addrlen);            
     if (recvlen >= 0) 
         {
         client_buffer[recvlen] = 0;	/* expect a printable string - terminate it */
