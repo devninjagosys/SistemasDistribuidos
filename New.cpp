@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <vector>
+
 #include "Code.h"
 
 
@@ -110,13 +111,12 @@ int main(int argc, char* argv[]){
         cout << "ERROR: Could not setup socket" << endl;
         exit(1);
     }
-    receiveMsgFromClients();
+    receiveMsgFromClients(0);
     }
     else
     {
-    ProcessClient P1;
     setupClientSocket(8080);
-    sendMsgToClient(8080);
+    sendMsgToClient(8080,0);
     }
     // interface();
 }
@@ -130,6 +130,10 @@ int main(int argc, char* argv[]){
 
 int setupServerSocket(int port)
 {
+    /*
+     *  Thread responsible for create a server socket
+     *  
+     */
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
@@ -144,14 +148,15 @@ int setupServerSocket(int port)
     return 0;
 }
 
-void receiveMsgFromClients()
+void receiveMsgFromClients(int flag)
 {
     /*
      *  Thread responsible for receiving messages from other processes and
-     *
+     *  Flag 1 -> Send ack for confirmation
      */
     struct sockaddr_in client_address;
 	socklen_t addrlen = sizeof(client_address);
+    int count=0;
 	while (true) 
     {
 		char buffer[500];
@@ -166,24 +171,31 @@ void receiveMsgFromClients()
         if (recvlen>0)
         {
             buffer[recvlen] = 0;
-            printf("received: '%s' from client %s\n", buffer,
-		       inet_ntoa(client_address.sin_addr));
+            printf("received: '%s' from client %s , Count:%d\n", buffer,
+		       inet_ntoa(client_address.sin_addr),count);
         }
 		// send same content back to the client ("echo")
+        if (flag==1)
+        {
         printf("sending response \"%s\"\n", buffer);
-		sendto(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_address,
-		       addrlen);
+		sendto(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_address,addrlen);
+        }
+        count++;
+
+
     }
 }
 
-void setupClientSocket(int port)
+int setupClientSocket(int port)
 {
+    /*
+     *  Thread responsible for create a client socket
+     *  
+     */
     struct sockaddr_in myaddr, remaddr;
 	int client_socket;
 	int recvlen;		/* # bytes in acknowledgement message */
 	char server[] = "127.0.0.1";	/* change this to use a different server */
-
-	/* create a socket */
 
 	if ((client_socket=socket(AF_INET, SOCK_DGRAM, 0))==-1)
     {
@@ -200,9 +212,14 @@ void setupClientSocket(int port)
 		exit(0);
     }
     client_sockets.push_back(client_socket);
+    return 1;
 }
-void sendMsgToClient(int port)
+void sendMsgToClient(int port,int flag)
 {
+    /*
+     *  Thread responsible for sending msg in a client socket
+     *  
+     */
     struct sockaddr_in remaddr;
 	socklen_t addrlen = sizeof(remaddr);
     memset((char *) &remaddr, 0, sizeof(remaddr));
@@ -224,10 +241,13 @@ void sendMsgToClient(int port)
 		exit(1);
 	}
 	/* now receive an acknowledgement from the server */
+    if(flag==1)
+    {
 	recvlen = recvfrom(temp_client_socket, client_buffer, BUFLEN, 0, (struct sockaddr *)&remaddr, &addrlen);            
     if (recvlen >= 0) 
-    {
+        {
         client_buffer[recvlen] = 0;	/* expect a printable string - terminate it */
         printf("received message: \"%s\"\n", client_buffer);
+        }
     }
 }
