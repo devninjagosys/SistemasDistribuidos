@@ -1,68 +1,73 @@
 /*
  *  Header for the 'valentao' code
- *  Author: Amanda
+ *  Author: Amanda, Vinicius
  *
  */
 
-#include <string.h>
-#define BUFLEN 2048
-using namespace std;
+#include <vector>
+
+
+// Processes class
+class ProcessClient {
+    pid_t myPid;
+    std::string processName;
+public:
+    struct sockaddr_in myaddr,remaddr;
+    int client_socket_ID;
+    int myport;
+
+    ProcessClient(int port, std::string name);
+    int getPid();
+    int sendMessage(char* msg);
+    int setupClientSocket();
+};
+
+
 // Global variables
 int server_socket;         // This process' socket
 // TODO: Should it be protected by lock?
+int selfID;
+int leaderIdx;   // leaderIdx should be the position in the process vector, or -1 if the leader is the process itslef
+int selfElecValue;
 
-char* messageBuffer;
 int messageLength;
-const char* delimiter;
-int msgCount=0;
+
+char* delimiter;
+
+int msgCount[5] = {0, 0, 0, 0, 0};
+int outMsgCount = 0;
+
+std::vector<int> ongoingElections;
+
+std::vector<ProcessClient> processes;
+#define N_PROC 5      // Number of processes operating
+
+std::chrono::high_resolution_clock::time_point start_time;
+std::chrono::high_resolution_clock::time_point actual_time;
+
+
+// Global flags
+bool leaderAnswered;
+bool isSilenced;
+bool resetTimer=false;
 
 
 // Message types
 enum MessageTyp {
-    m_eleicao = 1,
-    m_ok = 2,
-    m_lider = 3,
-    m_vivo = 4,
-    m_vivo_ok = 5
-};
-
-
-class ProcessClient
-{
-    int actualLider;
-    pid_t myPid;
-    std::string processName;
-    public:
-        struct sockaddr_in myaddr,remaddr;
-        int client_socket_ID;
-        int myport;
-        ProcessClient(int lider,std::string name,int port)
-        {
-            myPid = getpid();
-            actualLider = lider;
-            processName = name;
-            myport = port;
-        }
-        void setLider(int lider)
-        {
-            actualLider=lider;
-        }
-        int getLider()
-        {
-            return actualLider;
-        }
-        int getPid()
-        {
-            return (int)myPid;
-        }
-
+    m_eleicao = 0,
+    m_ok = 1,
+    m_lider = 2,
+    m_vivo = 3,
+    m_vivo_ok = 4
 };
 
 // Main funtions
 int main(int argc, char* argv[]);
-// AUX functions
+
 void interface();
-void receiveMsgFromClients(int flag);
+void *communication(void*);
+void *leader(void*);
+
+
+// Auxiliary funtions
 int setupServerSocket(int port);
-int setupClientSocket(ProcessClient& clientProcess);
-void sendMsgToClient(int flag,ProcessClient& clientProcess);
