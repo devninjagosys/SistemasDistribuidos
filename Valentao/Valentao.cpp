@@ -11,12 +11,17 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <vector>
+#include <sstream>
+#include <algorithm>
+#include <pthread.h>
+#include <chrono>
 
-#include "Code.h"
+
+#include "valentao.h"
 
 
 using namespace std;
+
 
 
 // User interface management
@@ -25,6 +30,7 @@ void interface(){
      *  Thread responsible for the user interface
      *
      */
+    cout << "In interface thread" << endl;
 
     // Setup to read keys
     struct termios oldSettings, newSettings;
@@ -88,44 +94,318 @@ void interface(){
 }
 
 
+void *communication(void*){
+    /*
+     *  Thread responsible for receiving messages from other processes and
+     *
+     */
+    cout << "In communication thread" << endl;
 
+    struct sockaddr_in client_address;
+    socklen_t addrlen = sizeof(client_address);
+    int totCount = 0;
+
+    while (true){
+        char buffer[messageLength];
+        // read content into buffer from an incoming client
+        int recvlen = recvfrom(server_socket, buffer, sizeof(buffer), 0,
+                             (struct sockaddr *)&client_address,
+                             &addrlen);
+        // inet_ntoa prints user friendly representation of the
+        // ip address
+        if (recvlen>0){
+          buffer[recvlen] = 0;
+          printf("received: '%s' from client %s , Count:%d\n", buffer,
+                 inet_ntoa(client_address.sin_addr),totCount);
+        }
+        totCount++;
+
+        // Interpreting message
+        char* msgPart;
+        int msgT;
+        int msgSender;
+
+        try {
+            msgPart = strtok(buffer, delimiter);
+            msgT = atoi(msgPart);   // Message type number
+
+            // TODO: Put lock!!!
+            msgCount[msgT]++;
+
+            msgPart = strtok(NULL, delimiter);
+            msgSender = atoi(msgPart);
+        } catch(...) {
+            cout << "ERROR: Message reading error" << endl;
+            continue;
+        }
+
+        if (msgT == m_eleicao){
+            msgPart = strtok(NULL, delimiter);
+            int elecValueReceived = atoi(msgPart);
+
+            // If ID is bigger than the received, should initiate election
+            if (selfElecValue > elecValueReceived){
+                // TODO: Sleep shortly to avoid sending too many elections
+
+                // Checking if has sent this election message already
+                bool messageSent = false;
+                for (int i; i<ongoingElections.size(); i++){
+                    if (ongoingElections[i] == msgSender) messageSent = true;
+                }
+
+                if (!messageSent){ // Hasn't sent messages for this election
+                    char outMsg[messageLength];
+                    sprintf( outMsg, "%i%s%i%s%i%s",
+                             m_eleicao, delimiter,
+                             msgSender, delimiter,
+                             selfElecValue, delimiter );
+
+                    isSilenced = false;
+
+                    // Broadcast of election message
+                    for (int i=0; i<N_PROC-1; i++){
+                        processes[i].sendMessage(outMsg);
+                    }
+
+                    ongoingElections.push_back(msgSender);
+                    // TODO: Start time counting to see if will be leader
+                    // NOTE: WHERE IS THIS TIMER HANDLED??
+                    // (Possibly use a thread)
+                }
+            }
+            // If ID is smaller than received it makes no sense to do anything else
+        } else if (msgT == m_ok){
+            // TODO: Check if this erasing should't be done after some thread notices the election is over or something
+            isSilenced = true;
+            ongoingElections.erase(std::remove(ongoingElections.begin(),
+                                                ongoingElections.end(), msgSender),
+                                    ongoingElections.end() ); // Taken out of elections
+
+        } else if (msgT == m_lider){
+            // Update leader ID
+            for (int i=0; i<N_PROC-1; i++){
+                if (processes[i].myport == msgSender){
+                    leaderIdx = i;
+                    break;
+                }
+            }
+            // TODO: Check!!
+            // TODO: Implement locks!!
+
+        } else if (msgT == m_vivo){
+            // In this case I am the leader myself, so I should answer the inquiry
+
+            cout << "Received VIVO message" << endl;
+            if (leaderIdx == -1){ // NOTE: If I am the leader, leaderIdx is -1
+                char outMsg[messageLength];
+                sprintf( outMsg, "%i%s%i%s",
+                         m_vivo_ok, delimiter, selfID, delimiter );
+                // cout << "Sending VIVO_OK message back (" << outMsg << ")" << endl;
+
+                leaderAnswered = false;
+                for (int i=0; i<N_PROC-1; i++){
+                    if (processes[i].myport == msgSender){ // NOTE: Change if I change selfID configuration!!
+                        processes[i].sendMessage(outMsg);
+                        break;
+                    }
+                }
+            } else {
+                cout << "ERROR: Received leader check message when I am not the leader" << endl;
+            }
+            // TODO: Check this
+
+        }   else if (msgT == m_vivo_ok){
+            cout<<"Setting Up to reset timer!"<<endl;
+            leaderAnswered = true;
+            resetTimer = true;
+            // TODO: Check if there's something else
+        }
+    }
+}
+
+
+void *leader(void*){
+    /*
+     *  Thread responsible for checking current leader
+     *
+     */
+    cout << "In leader check thread" << endl;
+    start_time = chrono::high_resolution_clock::now();
+    int timeDiff=0;
+    while (1){
+        if (resetTimer==true){
+            start_time = chrono::high_resolution_clock::now();
+            timeDiff = 0;
+            resetTimer = false;
+            cout<<"Reseting timer!"<<endl;
+        }
+        // TODO: If I am not leader, send messafe to leader. Check if message was received
+        if (leaderIdx == -1){ // NOTE: If I am the leader, leaderIdx is -1
+            //sleep(100);
+            cout << "Exiting ! Leader calling function wrong!" << endl;
+            //exit(0);
+            pthread_exit(NULL);
+
+        } else {
+            char buffer[messageLength];
+            sprintf(buffer, "%i%s%i%s", m_vivo, delimiter,
+                                        selfID, delimiter );
+
+            cout << "Messaging process. (" << buffer << ")" << endl;
+
+            processes[leaderIdx].sendMessage(buffer);
+
+            sleep(5); // Wait to see if there'll be an answer
+	        
+            actual_time = chrono::high_resolution_clock::now();
+            
+            timeDiff += chrono::duration_cast<chrono::seconds>(actual_time - start_time).count();
+
+            cout<<"Time Diff: "<<timeDiff<<endl;
+            // TODO: locks!!
+            if (!leaderAnswered or timeDiff>15){ // No answer from leader
+                // TODO: Put timer to delay beginning
+                cout << "No leader! Start election!" << endl;
+
+                // Initiating election
+                char outMsg[messageLength];
+                sprintf( outMsg, "%i%s%i%s%i%s",
+                         m_eleicao, delimiter,
+                         selfID, delimiter,
+                         selfElecValue, delimiter );
+
+                isSilenced = false;
+
+                // Broadcast of election message
+                for (int i=0; i<N_PROC-1; i++){
+                    processes[i].sendMessage(outMsg);
+                }
+
+                ongoingElections.push_back(selfID);
+                // TODO: Start time counting to see if will be leader
+                // NOTE: WHERE IS THIS TIMER HANDLED??
+                // (Possibly use a thread)
+
+                // TODO: End of elections!!
+
+            } // else { cout << "Leader ok" << endl; }
+            sleep(2);
+        }
+    }
+}
 
 
 int main(int argc, char* argv[]){
-    // TODO: Function arguments
-    int myServerPort = 8080;
-    int sendPort = 8080;
+    // int myServerPort = 8081;
+    int sendPorts[N_PROC] = {8080, 8081, 8082, 8083, 8084};
     messageLength = 1024;
-    messageBuffer = new char[messageLength];
-    delimiter = "\n";
+    delimiter = new char[2];
+    sprintf(delimiter, "\\");
     // ----
-    if(argc < 2)
-    { 
-        printf("Enter a valid integer."); 
-        return 0;
+
+    cout << "Delimiter = " << delimiter << endl;
+
+    // Function arguments
+    if (argc < 2){
+        cout << "ERROR: Enter a port number." << endl;
+        return 1;
     }
-    int numTimes = atoi(argv[1]);
-    if(argc >2)
-    { 
-        sendPort = atoi(argv[2]);
+
+    int myServerPort = atoi(argv[1]);
+    if ( (myServerPort < 8080) || (myServerPort > 8084) ){
+        cout << "ERROR: Enter a valid port number. Options are 8080, 8081, 8082, 8083 or 8084." << endl;
+        return 1;
     }
-    ProcessClient P1(0,"Processo1",sendPort);
-    ProcessClient P2(0,"Processo2",sendPort);
-    //std::cout<<numTimes<<endl;
-    if (numTimes==1)
-    {
-    if ( setupServerSocket(myServerPort) == -1 ){
+
+    selfID = myServerPort;
+    selfElecValue = myServerPort; // TODO: Change this (PID, for example)
+    // ----
+
+    if ( setupServerSocket(myServerPort) == -1 ) {
         cout << "ERROR: Could not setup socket" << endl;
         exit(1);
     }
-    receiveMsgFromClients(0);
+
+    int idx = 0;
+    for (int i = 0; i < N_PROC; i++) {
+        if (sendPorts[i] == myServerPort){
+            // Set initial leader
+            if (myServerPort == 8080){
+                leaderIdx = -1;
+                cout << "Am initial leader!" << endl;
+            }
+            continue;
+        }
+
+        std::stringstream procName;
+        procName << "Processo" << idx;
+        ProcessClient Proc(sendPorts[i], procName.str());
+        Proc.setupClientSocket();
+        cout<<"Processo Criado"<<endl;
+
+        processes.push_back(Proc);
+
+        // Set initial leader
+        if (sendPorts[i] == 8080){
+            leaderIdx = idx;
+            cout << "Initial leader: " << sendPorts[i] << endl;
+        }
+
+        idx++;
+        // char client_buffer[messageLength];
+        // sprintf(client_buffer, "0\\1");
+        // Proc.sendMessage(client_buffer);
     }
-    else
-    {
-    setupClientSocket(P1);
-    sendMsgToClient(0,P1);
-    }
+
     // interface();
+    //communication();
+    //leader();
+
+    int NUM_THREADS =2;
+    int threadResponse[NUM_THREADS];
+    int threadStatus;
+    int threadIndex;
+    pthread_t threads[NUM_THREADS];
+    pthread_attr_t attr;
+    int activeThreads;
+    void *status;
+
+    // Initialize and set thread joinable
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+    cout << "Creating Thread for the Process" << threadIndex << endl;
+    if (leaderIdx == -1){
+        cout<<"Thread Coordinator!"<<endl;
+        threadResponse[0] = pthread_create(&threads[0], &attr, communication, NULL );
+        activeThreads=1;
+    }
+    else{
+        cout<<"Thread Non Coordinator!"<<endl;
+        threadResponse[0] = pthread_create(&threads[threadIndex], &attr, communication, NULL );
+        threadResponse[1] = pthread_create(&threads[threadIndex], &attr, leader, NULL );
+        activeThreads=2;
+    }
+    for( threadIndex = 0; threadIndex < activeThreads; threadIndex++ ) {
+        if (threadResponse[threadIndex]){
+        cout << "Error:unable to create thread," << threadResponse[threadIndex] << endl;
+        exit(-1);
+        }
+    }
+    // free attribute and wait for the other threads
+    pthread_attr_destroy(&attr);
+    for( threadIndex = 0; threadIndex < activeThreads; threadIndex++ ) {
+       threadStatus = pthread_join(threads[threadIndex], &status);
+       if (threadStatus) {
+          cout << "Error:unable to join," << threadStatus << endl;
+          exit(-1);
+       }
+       cout << "Main: completed thread id :" << threadIndex ;
+       cout << "  Exiting with status :" << status << endl;
+    }
+
+    cout << "Main: program exiting." << endl;
+    //pthread_exit(NULL);
+    
 }
 
 
@@ -135,18 +415,16 @@ int main(int argc, char* argv[]){
 
 // Auxiliary Functions ----------------------------------------------------------
 
-int setupServerSocket(int port)
-{
+int setupServerSocket(int port){
     /*
      *  Thread responsible for create a server socket
-     *  
+     *
      */
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons( port );
     server_socket = socket(AF_INET, SOCK_DGRAM, 0);
-
     if ( bind( server_socket, (struct sockaddr *)&address, sizeof(address) ) < 0 ){
         cout << "ERROR: Unable to bind socket" << endl;
         perror("bind failed");
@@ -155,110 +433,61 @@ int setupServerSocket(int port)
     return 0;
 }
 
-void receiveMsgFromClients(int flag)
-{
-    /*
-     *  Thread responsible for receiving messages from other processes and
-     *  Flag 1 -> Send ack for confirmation
-     */
-    struct sockaddr_in client_address;
-	socklen_t addrlen = sizeof(client_address);
-    int count=0;
-	while (true) 
-    {
-		char buffer[500];
 
-		// read content into buffer from an incoming client
-		int recvlen = recvfrom(server_socket, buffer, sizeof(buffer), 0,
-		                   (struct sockaddr *)&client_address,
-		                   &addrlen);
-
-		// inet_ntoa prints user friendly representation of the
-		// ip address
-        if (recvlen>0)
-        {
-            buffer[recvlen] = 0;
-            printf("received: '%s' from client %s , Count:%d\n", buffer,
-		       inet_ntoa(client_address.sin_addr),count);
-        }
-		// send same content back to the client ("echo")
-        if (flag==1)
-        {
-        printf("sending response \"%s\"\n", buffer);
-		sendto(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_address,addrlen);
-        }
-        count++;
-
-
-    }
+// ProcessClient class
+ProcessClient::ProcessClient(int port, string name){
+    myPid = getpid();
+    processName = name;
+    myport = port;
 }
 
-int setupClientSocket(ProcessClient& clientProcess)
-{
-    /*
-     *  Thread responsible for create a client socket
-     *  
-     */
-    //struct sockaddr_in myaddr;
-    int port=clientProcess.myport;
-	int client_socket;
-	int recvlen;		/* # bytes in acknowledgement message */
-	char server[] = "127.0.0.1";	/* change this to use a different server */
-
-	if ((client_socket=socket(AF_INET, SOCK_DGRAM, 0))==-1)
-    {
-		printf("socket created\n");
-    }
-    memset((char *)&clientProcess.myaddr, 0, sizeof(clientProcess.myaddr));
-	clientProcess.myaddr.sin_family = AF_INET;
-	clientProcess.myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	clientProcess.myaddr.sin_port = htons(0);
-
-    if (bind(client_socket, (struct sockaddr *)&clientProcess.myaddr, sizeof(clientProcess.myaddr)) < 0) 
-    {
-		perror("bind failed");
-		exit(0);
-    }
-    //client_sockets.push_back(client_socket);
-    clientProcess.client_socket_ID=client_socket;
-    return 1;
+int ProcessClient::getPid(){ // NOTE: What is the usage of this?
+    return (int)myPid;
 }
-void sendMsgToClient(int flag,ProcessClient& clientProcess)
-{
-    /*
-     *  Thread responsible for sending msg in a client socket
-     *  
-     */
-    //struct sockaddr_in remaddr;
-    int port=clientProcess.myport;
-	socklen_t addrlen = sizeof(clientProcess.remaddr);
-    memset((char *) &clientProcess.remaddr, 0, sizeof(clientProcess.remaddr));
-    char client_buffer[BUFLEN];	/* message buffer */
-	clientProcess.remaddr.sin_family = AF_INET;
-	clientProcess.remaddr.sin_port = htons(port);
+
+int ProcessClient::sendMessage(char client_buffer[]){
+    socklen_t addrlen = sizeof(remaddr);
+    memset((char *) &remaddr, 0, sizeof(remaddr));
+    remaddr.sin_family = AF_INET;
+	remaddr.sin_port = htons(myport);
     char server[] = "127.0.0.1";
     int recvlen;
-    //int count=0;
-    //int temp_client_socket = client_sockets.back();
-	if (inet_aton(server, &clientProcess.remaddr.sin_addr)==0) {
-		fprintf(stderr, "inet_aton() failed\n");
-		exit(1);
-	}
-	printf("Sending packet %d to %s on port %d\n", msgCount, server, port);
-	sprintf(client_buffer, "This is packet %d", msgCount);
-	if (sendto(clientProcess.client_socket_ID, client_buffer, strlen(client_buffer), 0, (struct sockaddr *)&clientProcess.remaddr, addrlen)==-1) {
-		perror("sendto");
-		exit(1);
-	}
-    msgCount++;
-	/* now receive an acknowledgement from the server */
-    if(flag==1)
-    {
-	recvlen = recvfrom(clientProcess.client_socket_ID, client_buffer, BUFLEN, 0, (struct sockaddr *)&clientProcess.remaddr, &addrlen);            
-    if (recvlen >= 0) 
-        {
-        client_buffer[recvlen] = 0;	/* expect a printable string - terminate it */
-        printf("received message: \"%s\"\n", client_buffer);
-        }
+    if (inet_aton(server, &remaddr.sin_addr)==0){
+        fprintf(stderr, "inet_aton() failed\n");
+        return 1;
+	  }
+
+    if (sendto(client_socket_ID, client_buffer, strlen(client_buffer), 0, (struct sockaddr *)&remaddr, addrlen)==-1) {
+        perror("sendto");
+        return 1;
+	  }
+
+    return 0; // If everything went fine
+}
+
+int ProcessClient::setupClientSocket(){
+    /*
+     *  Thread responsible for create a client socket
+     *
+     */
+    //struct sockaddr_in myaddr;
+    int port = myport;
+    int client_socket;
+    int recvlen;		/* # bytes in acknowledgement message */
+    char server[] = "127.0.0.1";	/* change this to use a different server */
+    if ((client_socket=socket(AF_INET, SOCK_DGRAM, 0))==-1){
+        printf("socket created\n");
     }
+    memset( (char *)&myaddr, 0, sizeof(myaddr) );
+	myaddr.sin_family = AF_INET;
+	myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    myaddr.sin_port = htons(0);
+    if ( bind(client_socket, (struct sockaddr *)&myaddr,
+              sizeof(myaddr)) < 0 ){
+        perror("bind failed");
+        exit(0);
+    }
+    //client_sockets.push_back(client_socket);
+    client_socket_ID=client_socket;
+    return 1;
 }
