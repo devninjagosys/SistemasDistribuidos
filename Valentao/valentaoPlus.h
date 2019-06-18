@@ -58,6 +58,9 @@ char* delimiter;
 int msgCount[5] = {0, 0, 0, 0, 0};
 int outMsgCount = 0;
 int inMsgCount = 0;
+int myactualport=0;
+bool online = true;
+bool electionfinished =true;
 
 
 std::vector<int> ongoingElections;
