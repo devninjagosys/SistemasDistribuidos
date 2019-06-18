@@ -23,6 +23,7 @@ std::mutex mtx_electionNumber;
 std::mutex mtx_totalElectionMsgs;
 std::mutex mtx_alreadyOnThreadleader;
 std::mutex mtx_vivo_ok;
+std::mutex mtx_maior_ID;
 
 // Processes class
 class ProcessClient {
@@ -57,6 +58,9 @@ char* delimiter;
 int msgCount[5] = {0, 0, 0, 0, 0};
 int outMsgCount = 0;
 int inMsgCount = 0;
+int myactualport=0;
+bool online = true;
+bool electionfinished =true;
 
 
 std::vector<int> ongoingElections;
@@ -75,6 +79,7 @@ bool isSilenced;
 bool isCheckingOnLeader;
 bool alreadyOnThreadleader=false;
 bool outElection=false;
+bool maior_ID = false;
 // bool resetTimer=false;
 
 
